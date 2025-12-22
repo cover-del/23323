@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Debuugo 屋屋 Web</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    :root{
+      --board-width: 720px;
+      --cell-size: 60px;
+      --side-width: 340px;
+    }
+    body{font-family:Arial;margin:0;background:#f2f4f7;color:#222;}
+    header{background:#2b3a67;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;}
+    header h1{margin:0;font-size:18px;}
+    header .meta{font-size:13px;opacity:0.9;}
+    #wrap{
+      display:flex;
+      gap:12px;
+      height:calc(100vh - 64px);
+    }
+
+
+    /* 左欄 */
+    #left{
+      width:200px; /* 可依需求調整 */
+      padding:18px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      background:#f9fafc;
+      border-right:1px solid #e3e7ee;
+    }
+
+    /* 中間：地圖 */
+    #center{
+      flex:1;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      padding:12px;
+    }
+    /* boardContainer 保留原樣 */
+    #boardContainer{
+      width:var(--board-width);
+      height:var(--board-width);
+      overflow:auto;
+      border-radius:8px;
+      background-color:#000;
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      padding:12px;
+      box-shadow:0 2px 6px rgba(0,0,0,0.06);
+    }
+    /* 地圖格子 */
+    #board{display:grid;grid-template-columns:repeat(11,var(--cell-size));grid-auto-rows:var(--cell-size);gap:6px;justify-content:center;}
+    .cell{border:1px solid rgba(255,255,255,0.3);border-radius:6px;background: rgba(255,255,255,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4px;font-size:12px;text-align:center;box-sizing:border-box;}
+    .cell.ground{background:#e6f7e9;}
+    .cell.upper{background:#e8eefc;}
+    .cell.basement{background:#fdecea;}
+    .playerToken{background:#ffd54f;border-radius:50%;padding:6px 8px;font-size:11px;box-shadow:0 1px 2px rgba(0,0,0,0.1);}
+
+    /* 右欄 */
+    #right{
+      width:340px; 
+      border-left:1px solid #e3e7ee;
+      padding:18px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      background:#fff;
+    }
+
+    .panel{background:#fff;border-radius:6px;padding:10px;border:1px solid #eee;box-shadow:0 1px 2px rgba(0,0,0,0.02);}
+    
+    #chatBox{height:360px;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:6px;}
+    .chatMsg{padding:6px 8px;border-radius:6px;max-width:100%;word-break:break-word;}
+    .chatMsg.me{background:#e6fff1;align-self:flex-end;}
+    .chatMsg.system{background:#fff4e6;color:#a65e00;border:1px dashed #f0c080;align-self:center;}
+    .chatMsg.other{background:#f6f7fb;align-self:flex-start;}
+    
+    #cardsBox{height:140px;overflow:auto;display:flex;flex-direction:column;gap:6px;}
+    .card{border:1px solid #e6e9ef;padding:6px;border-radius:6px;background:#fff;}
+    
+    /* controls bottom */
+    #controls{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #e6e9ef;padding:10px;display:flex;justify-content:center;gap:10px;align-items:center;}
+    .btn{padding:8px 12px;border-radius:6px;border:1px solid #c9d2e6;background:#f5f8ff;cursor:pointer;}
+    .btn.primary{background:#2b6df6;color:#fff;border-color:#2356d1;}
+    
+    /* inputs */
+    input, select, button{font-size:14px;}
+    
+    /* responsive */
+    @media(max-width:1100px){
+      #wrap{flex-direction:column;}
+      #left,#center,#right{width:100%;}
+      #boardContainer{width:100%;height:60vh;}
+    }
+
+    @media(max-width:900px){
+      #wrap{flex-direction:column;}
+      #left{order:1}
+      #right{order:2;width:100%}
+      #boardContainer{width:100%;height:60vh;}
+    }
+
+    /* 規則視窗專用 CSS */
+    .rule-content { display: none; }
+    #tab1 { display: block; } /* 預設顯示第一個分頁 */
+  </style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex; align-items:center;">
+    <h1>Debuugo 屋屋</h1>
+    <button class="btn" onclick="document.getElementById('rules-modal').style.display='block'" style="margin-left:15px; background:#444; color:#fff; border:1px solid #666;">
+      📖 閱讀生存手冊
+    <button class="btn" onclick="document.getElementById('k02').style.display='block'" style="margin-left:15px; background:#444; color:#fff; border:1px solid #666;">
+      📖 閱讀生存手冊
+    </button>
+  </div>
+
+  <div class="meta">
+    Room: <span id="roomLabel">—</span> &nbsp;|&nbsp;
+    Player: <span id="playerLabel">—</span>
+  </div>
+</header>
+
+<div id="wrap">
+  <!-- 左欄：玩家操作 / 玩家列表 -->
+  <div id="left">
+    <div style="display:flex;gap:8px;flex-wrap:wrap; align-items:center;">
+      <input id="pname" placeholder="你的名字" />
+      <button class="btn" onclick="login()">登入</button>
+      <input id="joinRoomId" placeholder="房間ID">
+      <button class="btn" onclick="joinRoom()">加入房間</button>
+      <input id="roomName" placeholder="新房間名稱">
+      <button class="btn primary" onclick="createRoom()">創建房間</button>
+    </div>
+
+    <div class="panel" style="width:220px; margin-top:12px;">
+      <h3>房間玩家</h3>
+      <ul id="playerList" style="list-style:none; padding-left:0; margin:0;"></ul>
+    </div>
+  </div>
+
+  <!-- 中間欄：地圖 + 樓層控制 + 身分/Haunt -->
+  <div id="center">
+    <div id="boardContainer" class="panel">
+      <div id="board"></div>
+    </div>
+
+    <div id="floor-controls" style="margin-top:12px; display:flex; gap:6px; justify-content:center;">
+      <button onclick="setFloor('Basement')">B1</button>
+      <button onclick="setFloor('Ground')">1F</button>
+      <button onclick="setFloor('Upper')">2F</button>
+    </div>
+
+    <div style="display:flex;gap:8px; margin-top:12px;">
+      <div class="panel" style="flex:1">
+        <div><strong>我的身分</strong></div>
+        <div id="myRole">—</div>
+      </div>
+      <div class="panel" style="width:220px">
+        <div><strong>Haunt 狀態</strong></div>
+        <div id="hauntStatus">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右欄：聊天 + 手牌 + 房主操作 -->
+  <div id="right">
+    <div class="panel">
+      <h3>聊天</h3>
+      <div id="chatBox" style="height:360px; overflow:auto;"></div>
+      <div style="display:flex; gap:6px; margin-top:8px;">
+        <input id="chatInput" placeholder="輸入訊息" style="flex:1" />
+        <select id="chatType">
+          <option value="player">一般</option>
+          <option value="system">系統</option>
+          <option value="private">私聊</option>
+        </select>
+      </div>
+      <div style="display:flex; gap:6px; margin-top:6px;">
+        <select id="chatReceiver" style="flex:1"></select>
+        <button onclick="sendChat()">送出</button>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:12px;">
+      <h3>手牌 / 道具</h3>
+      <div id="cardsBox"></div>
+    </div>
+
+    <div class="panel" style="margin-top:12px;">
+      <h3>房主操作</h3>
+      <button class="btn" onclick="assignRolesPrompt()">分發角色（隨機）</button>
+      <button class="btn" onclick="resetRoom()">重置房間（清空 Tiles/Players/GS）</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="controls">
+  <button class="btn" onclick="move('left')">←</button>
+  <button class="btn" onclick="move('up')">↑</button>
+  <button class="btn" onclick="move('down')">↓</button>
+  <button class="btn" onclick="move('right')">→</button>
+  <button class="btn" onclick="draw('event')">抽事件</button>
+  <button class="btn" onclick="draw('item')">抽物品</button>
+  <button class="btn" onclick="draw('omen')">抽預兆</button>
+</div>
+
+<div id="rules-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; color:#fff; backdrop-filter: blur(5px);">
+  <div style="max-width:600px; margin:5vh auto; background:#222; border:2px solid #0f0; padding:20px; border-radius:10px; height: 80vh; display:flex; flex-direction:column; box-shadow: 0 0 20px rgba(0,255,0,0.2);">
+    
+    <div style="flex-shrink:0;">
+      <h2 style="color:#0f0; text-align:center; margin-top:0; border-bottom:1px dashed #0f0; padding-bottom:10px; font-family: monospace;">
+        📖 Debuugo 實驗室守則
+      </h2>
+
+      <div style="display:flex; gap:5px; margin-bottom:15px;">
+        <button onclick="showTab('tab1')" style="flex:1; padding:10px; background:#333; color:#fff; border:1px solid #555; cursor:pointer;">🎯 目標</button>
+        <button onclick="showTab('tab2')" style="flex:1; padding:10px; background:#333; color:#fff; border:1px solid #555; cursor:pointer;">🔄 流程</button>
+        <button onclick="showTab('tab3')" style="flex:1; padding:10px; background:#333; color:#fff; border:1px solid #555; cursor:pointer;">🎲 數值</button>
+        <button onclick="showTab('tab4')" style="flex:1; padding:10px; background:#333; color:#fff; border:1px solid #555; cursor:pointer;">💀 作祟</button>
+      </div>
+    </div>
+
+    <div style="flex:1; overflow-y:auto; padding-right:10px; line-height:1.6; font-size:15px;">
+      
+      <div id="tab1" class="rule-content">
+        <h3 style="color:#81c784;">🎮 遊戲目標</h3>
+        <p>歡迎來到 Debuugo 屋屋！這裡充滿了 Bug 與校園傳說。</p>
+        <div style="background:#333; padding:10px; border-radius:5px; margin-bottom:10px;">
+          <strong>階段一：探索 (Debug Phase)</strong>
+          <ul style="margin:5px 0 0 20px;">
+            <li>此時大家是隊友。</li>
+            <li>目標：開啟新房間，蒐集物品，強化數值。</li>
+            <li>小心！預兆卡抽越多，系統越容易崩潰。</li>
+          </ul>
+        </div>
+        <div style="background:#333; padding:10px; border-radius:5px;">
+          <strong>階段二：作祟 (System Crash)</strong>
+          <ul style="margin:5px 0 0 20px;">
+            <li>某人會成為<span style="color:#ff5252">叛徒</span>！</li>
+            <li>倖存者必須完成劇本任務（如重寫核心代碼）才能獲勝。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div id="tab2" class="rule-content" style="display:none;">
+        <h3 style="color:#64b5f6;">🔄 回合流程</h3>
+        <ol>
+          <li><strong>移動：</strong> 速度值 = 可走步數。</li>
+          <li><strong>探索：</strong> 走到地圖邊緣的門，會自動開啟新房間。</li>
+          <li><strong>強制停止：</strong> 若新房間有圖示（事件/物品/預兆），必須停下並抽卡。</li>
+          <li><strong>行動：</strong> 使用物品、攻擊（作祟後）、特殊能力。</li>
+        </ol>
+      </div>
+      
+      <div id="tab3" class="rule-content" style="display:none;">
+        <h3 style="color:#ffd54f;">📊 屬性與檢定</h3>
+        <p><strong>💪力量 / ⚡速度 / 🧠神智 / 📚知識</strong></p>
+        <p style="color:#ff5252;">⚠️ 當任一數值歸零時，角色死亡。</p>
+        <hr style="border-color:#555;">
+        <p><strong>🎲 什麼是「檢定」？</strong></p>
+        <p>當遊戲要求「知識檢定 4+」時：</p>
+        <ol>
+          <li>查看你的知識數值（例如 3）。</li>
+          <li>系統會幫你擲 3 顆骰子。</li>
+          <li>骰子總和 ≥ 4 即為<span style="color:#81c784">成功</span>，否則失敗。</li>
+        </ol>
+      </div>
+
+      <div id="tab4" class="rule-content" style="display:none;">
+        <h3 style="color:#ff5252;">💀 預兆與作祟</h3>
+        <p>當你抽到 <span style="color:#ff5252; font-weight:bold;">預兆卡 (Omen)</span> 時...</p>
+        <p>必須進行作祟判定！</p>
+        <div style="border: 2px solid #ff5252; padding:15px; text-align:center; background:#300; border-radius:8px;">
+          <p style="margin:0;"><strong>作祟公式：</strong></p>
+          <p style="font-size:1.2em; font-weight:bold; margin:10px 0;">擲 6 顆骰子</p>
+          <p style="margin:0;">若 <strong>點數總和 < 目前預兆卡總數</strong></p>
+          <p style="font-size:1.5em; margin:10px 0;">😱 系統崩潰 (作祟開始)</p>
+        </div>
+      </div>
+
+    </div>
+
+    <button onclick="document.getElementById('rules-modal').style.display='none'" style="flex-shrink:0; margin-top:20px; padding:15px; background:#0f0; color:#000; font-weight:bold; border:none; border-radius:5px; cursor:pointer;">
+      我已閱讀並同意以上條款 (關閉)
+    </button>
+  </div>
+</div>
+ 
+<div id="k01" style="display:none; position:fixed; top:20%; left:50%; transform:translateX(-50%);
+    background:#222; color:#fff; border:2px solid #0f0; padding:20px; border-radius:10px; z-index:1000; cursor: move;
+    min-width:250px; min-height:120px; box-shadow: 0 0 20px rgba(0,255,0,0.3);">
+  <h3 id="k01-title" style="margin:0; cursor:inherit;"></h3>
+  <p><strong>功能說明：</strong> <span id="k01-effect"></span></p>
+  <p><strong>背景介紹：</strong> <span id="k01-lore"></span></p>
+  <button onclick="closeRoomModal()">關閉</button>
+
+  <!-- 伸縮抓手 -->
+  <div id="k01-resize" style="position:absolute; width:15px; height:15px; bottom:5px; right:5px; cursor:se-resize;
+       background:rgba(0,255,0,0.5); border-radius:3px;"></div>
+</div>
+
+
+<script>
+/* --- client-side logic --- */
+let myPlayerId = localStorage.getItem("myPlayerId") || null;
+let myName = localStorage.getItem("myName") || "";
+let currentRoomId = localStorage.getItem("currentRoomId") || null;
+let syncTimer = null;
+let currentFloor = "Ground"; // 預設 1F
+
+
+// utility: handle call failures
+function gsRun(fn, args, cb){
+  return google.script.run.withSuccessHandler(cb).withFailureHandler(err=>{
+    console.error("GAS error", err);
+    alert("伺服器錯誤: " + err.message);
+  })[fn].apply(null, args);
+}
+
+// login
+function login(){
+  const name = document.getElementById("pname").value.trim();
+  if(!name) return alert("請輸入名字");
+  myName = name;
+  localStorage.setItem("myName", myName);
+  gsRun("addPlayer", [name], (resp)=>{
+    myPlayerId = resp.playerId; localStorage.setItem("myPlayerId", myPlayerId);
+    document.getElementById("playerLabel").textContent = name + " ("+myPlayerId+")";
+    alert("登入成功: " + name);
+  });
+}
+
+// create room
+function createRoom(){
+  const rn = document.getElementById("roomName").value || "Room";
+  gsRun("createRoom", [rn], (roomId)=>{
+    currentRoomId = roomId; localStorage.setItem("currentRoomId", roomId);
+    document.getElementById("roomLabel").textContent = roomId;
+    // auto add self
+    if(!myPlayerId) login(); // ensure player exists
+    setTimeout(()=>{ joinRoom(); }, 500);
+    startSync();
+  });
+}
+
+let TILE_POOL = [];
+
+function loadTilePool(callback){
+  gsRun("getTilePool", [], pool => {
+    TILE_POOL = pool;
+    console.log("Tile pool loaded:", TILE_POOL);
+    if(callback) callback();
+  });
+}
+
+
+// join room (adds player to room)
+function joinRoom(){
+  const rid = currentRoomId || document.getElementById("joinRoomId").value;
+  if(!rid) return alert("請輸入或建立房間");
+  if(!myPlayerId) return alert("請先登入");
+
+  gsRun("addPlayerToRoom", [myName, rid], (player)=>{
+    myPlayerId = player.playerId;
+    localStorage.setItem("myPlayerId", myPlayerId);
+
+    currentRoomId = rid;
+    localStorage.setItem("currentRoomId", currentRoomId);
+
+    document.getElementById("roomLabel").textContent = currentRoomId;
+    document.getElementById("playerLabel").textContent =
+      myName + " (" + myPlayerId + ")";
+
+    startSync();
+  });
+}
+
+
+// sync loop
+function startSync(){
+  if(syncTimer) clearInterval(syncTimer);
+  loadAll();
+  syncTimer = setInterval(loadAll, 1500);
+}
+function stopSync(){ if(syncTimer) clearInterval(syncTimer); syncTimer = null; }
+
+// load everything
+function loadAll(){
+  if(!currentRoomId || !myPlayerId) return;
+  gsRun("getRoomData",[currentRoomId], data=>{
+    renderBoard(data.tiles, data.players);
+    renderHaunt(data.haunt);
+    renderMyRole(data.players);
+    loadChat();
+    loadPlayersListForChat();
+    renderPlayerList(data.players);  // ⭐ 建議傳進 players
+    loadCards();
+  });
+}
+
+
+
+// render board
+function renderBoard(tiles, players){
+  const board = document.getElementById("board");
+  board.innerHTML = "";
+
+  // 過濾出當前樓層的房間
+  const floorTiles = tiles.filter(t => t.floor === currentFloor);
+
+  for(let y=0;y<11;y++){
+    for(let x=0;x<11;x++){
+      const gx = x - 5, gy = y - 5;
+      const cell = document.createElement("div");
+      cell.className = "cell";
+
+      // 找房間
+      const tile = floorTiles.find(t=>Number(t.x)===gx && Number(t.y)===gy);
+      if(tile){
+        cell.classList.add(tile.floor==="Ground" ? "ground" : tile.floor==="Upper" ? "upper" : "basement");
+
+        const title = document.createElement("div");
+        title.textContent = tile.tileName;
+        title.style.fontSize="12px";
+        title.style.cursor = "pointer";
+        title.onclick = () => {
+          document.getElementById("k01-title").innerText = tile.tileName;
+          document.getElementById("k01-effect").innerText = tile.effect || "無功能說明";
+          document.getElementById("k01-lore").innerText = tile.lore || "無背景介紹";
+          document.getElementById("k01").style.display = "block";
+        };
+        cell.appendChild(title);
+
+        if(tile.tileName === "系館大廳" && tile.floor === "Ground" && gx===0 && gy===0){
+          cell.style.border = "2px solid #0f0";
+        }
+
+      } else {
+        const empty = document.createElement("div"); 
+        empty.textContent = ""; 
+        cell.appendChild(empty);
+      }
+
+      // 玩家 token 也只顯示當前樓層的玩家
+      const p = players.find(pl => Number(pl.x) === gx && Number(pl.y) === gy && pl.floor === currentFloor);
+      if(p){
+        const token = document.createElement("div"); 
+        token.className = "playerToken";
+        token.textContent = p.name;
+        cell.appendChild(token);
+      }
+
+      board.appendChild(cell);
+    }
+  }
+}
+
+
+function renderPlayerList(){
+  if(!currentRoomId) return;
+  gsRun("getRoomPlayers",[currentRoomId], players=>{
+    const container = document.getElementById("playerList");
+    container.innerHTML = "";
+    players.forEach(p=>{
+      const div = document.createElement("div");
+      div.textContent = p.name + (p.playerId===myPlayerId ? " (你)" : "");
+      div.style.padding = "6px 12px";
+      div.style.border = "1px solid #ddd";
+      div.style.borderRadius = "6px";
+      div.style.background = "#f6f7fb";
+      div.style.fontSize = "13px";
+      div.style.cursor = "pointer";
+      container.appendChild(div);
+    });
+  });
+}
+
+// render haunt
+function renderHaunt(gs){
+  const el = document.getElementById("hauntStatus");
+  if(!gs) { el.textContent = "—"; return; }
+  if(gs.hauntTriggered==="true") el.textContent = "Haunt! 叛徒:"+ (gs.traitor||"unknown") + " 劇本:"+ (gs.hauntScenario||"-");
+  else el.textContent = "尚未觸發（Omen "+(gs.omenCount||0)+")";
+}
+
+// render my role
+function renderMyRole(players){
+  const me = players.find(p=>p.playerId===myPlayerId);
+  document.getElementById("myRole").textContent = me ? (me.role || "尚未分配") : "not in room";
+}
+
+// movement
+function move(dir){
+  if(!currentRoomId || !myPlayerId) return alert("先登入並加入房間");
+  const dx = dir==="left" ? -1 : dir==="right" ? 1 : 0;
+  const dy = dir==="up" ? -1 : dir==="down" ? 1 : 0;
+  gsRun("movePlayer",[myPlayerId, dx, dy, currentRoomId], res=>{
+    if(res && res.error) alert(res.error);
+    else loadAll();
+  });
+}
+
+// draw card
+function draw(type){
+  if(!currentRoomId) return;
+  gsRun("drawCard",[type, currentRoomId], res=>{
+    if(res && res.error) alert(res.error);
+    else alert("抽到: " + (res.card ? res.card.name : JSON.stringify(res)));
+    loadAll();
+  });
+}
+
+// assign roles prompt
+function assignRolesPrompt(){
+  if(!currentRoomId) return alert("請先在房間裡");
+  // fetch players and auto assign random 1 traitor rest heroes
+  gsRun("getRoomPlayers",[currentRoomId], players=>{
+    if(!players || players.length===0) return alert("房內無玩家");
+    const roles = [];
+    const traitorIndex = Math.floor(Math.random()*players.length);
+    for(let i=0;i<players.length;i++) roles.push(i===traitorIndex ? "Traitor" : "Hero");
+    gsRun("assignRoles",[roles, currentRoomId], ret=>{ alert("已分發身分"); loadAll(); });
+  });
+}
+
+// reset room (utility)
+function resetRoom(){
+  if(!currentRoomId) return;
+  if(!confirm("重置房間會清空 Tiles, Players, PlayerCards, Chat, GameState (重新初始化)。確定？")) return;
+  // clear rows by rewriting headers only (quick approach)
+  google.script.run.withSuccessHandler(()=>{
+    alert("請手動在試算表重新建立或用 createInitialSheets 初始化。");
+  }).createInitialSheets();
+}
+
+// ---------------- chat ----------------
+function loadPlayersListForChat(){
+  if(!currentRoomId) return;
+
+  gsRun("getRoomPlayers",[currentRoomId], players=>{
+    const sel = document.getElementById("chatReceiver");
+    sel.innerHTML = "";
+
+    players.forEach(p=>{
+      const opt = document.createElement("option");
+      opt.value = p.playerId;
+      opt.textContent = `${p.name} (${p.playerId})`;
+      sel.appendChild(opt);
+    });
+  });
+}
+
+function loadChat(){
+  if(!currentRoomId || !myPlayerId) return;
+
+  gsRun("getMessagesForRoom",[myPlayerId, currentRoomId], msgs=>{
+    const box = document.getElementById("chatBox");
+    box.innerHTML = "";
+
+    msgs.forEach(m=>{
+      const div = document.createElement("div");
+
+      div.className =
+        "chatMsg " +
+        (m.type==="system" ? "system" :
+         m.playerId===myPlayerId ? "me" : "other");
+
+      const t = new Date(m.timestamp);
+      const time =
+        ("0"+t.getHours()).slice(-2)+":"+
+        ("0"+t.getMinutes()).slice(-2);
+
+      div.innerHTML =
+        `[${time}] <strong>${m.name}</strong>: ${m.message}`;
+
+      box.appendChild(div);
+    });
+
+    box.scrollTop = box.scrollHeight;
+  });
+}
+
+
+function sendChat(){
+  const msg = document.getElementById("chatInput").value.trim();
+  if(!msg) return;
+
+  const type = document.getElementById("chatType").value;
+  const recv =
+    type==="private"
+      ? document.getElementById("chatReceiver").value
+      : "";
+
+  gsRun(
+    "sendMessageToRoom",
+    [myPlayerId, myName, msg, currentRoomId, type, recv],
+    ()=>{
+      document.getElementById("chatInput").value = "";
+      loadChat();
+    }
+  );
+}
+
+
+// load cards
+function loadCards(){
+  if(!currentRoomId) return;
+  gsRun("getMyCards",[myPlayerId, currentRoomId], cards=>{
+    const box = document.getElementById("cardsBox");
+    box.innerHTML = "";
+    cards.forEach(c=>{
+      const div = document.createElement("div"); div.className="card";
+      div.innerHTML = "<div><strong>"+c.cardName+"</strong> ("+c.type+")</div><div style='margin-top:6px'><button class='btn' onclick='useCard(\""+c.cardName+"\")'>使用</button></div>";
+      box.appendChild(div);
+    });
+  });
+}
+function useCard(cardName){
+  gsRun("useCard",[myPlayerId, cardName, currentRoomId], res=>{
+    if(res && res.error) alert(res.error);
+    else { alert("使用成功: " + cardName); loadCards(); }
+  });
+}
+
+// boot: if stored data exists, resume sync
+if(localStorage.getItem("currentRoomId")) {
+  currentRoomId = localStorage.getItem("currentRoomId");
+  document.getElementById("roomLabel").textContent = currentRoomId;
+}
+if(localStorage.getItem("myName")){
+  myName = localStorage.getItem("myName");
+  document.getElementById("pname").value = myName;
+}
+if(localStorage.getItem("myPlayerId")) {
+  myPlayerId = localStorage.getItem("myPlayerId");
+  document.getElementById("playerLabel").textContent = (myName||"") + " (" + myPlayerId + ")";
+}
+if(currentRoomId && myPlayerId) startSync();
+
+// 3. 規則分頁邏輯 (新增在這裡)
+function showTab(tabId) {
+  var tabs = document.querySelectorAll('.rule-content');
+  for (var i = 0; i < tabs.length; i++) {
+    tabs[i].style.display = 'none';
+  }
+  document.getElementById(tabId).style.display = 'block';
+}
+
+// 假設你已經有房間資料陣列 roomData.tiles
+// 每個 tile 物件有 name, effect, lore, x, y, floor
+
+function showRoomModal(tile){
+  document.getElementById("k01-title").innerText = tile.tileName;
+  document.getElementById("k01-effect").innerText = tile.effect || "無功能說明";
+  document.getElementById("k01-lore").innerText = tile.lore || "無背景介紹";
+  document.getElementById("k01").style.display="block";
+}
+
+function closeRoomModal(){
+  document.getElementById("k01").style.display="none";
+}
+const modal = document.getElementById("k01");
+const resizeHandle = document.getElementById("k01-resize");
+
+
+// 拖移
+function makeDraggable(el) {
+  let isMouseDown = false;
+  let offsetX, offsetY;
+
+  el.addEventListener('mousedown', function(e) {
+    if(e.target === resizeHandle) return; // 點擊抓手不拖動
+    isMouseDown = true;
+    offsetX = e.clientX - el.getBoundingClientRect().left;
+    offsetY = e.clientY - el.getBoundingClientRect().top;
+    el.style.cursor = "grabbing";
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!isMouseDown) return;
+    el.style.left = (e.clientX - offsetX) + "px";
+    el.style.top = (e.clientY - offsetY) + "px";
+    el.style.transform = ""; // 移動時清除 translateX
+  });
+
+  document.addEventListener('mouseup', function() {
+    isMouseDown = false;
+    el.style.cursor = "move";
+  });
+}
+makeDraggable(modal);
+
+// 伸縮
+let isResizing = false;
+resizeHandle.addEventListener('mousedown', function(e){
+  isResizing = true;
+  e.stopPropagation(); // 防止拖移同時觸發
+});
+
+document.addEventListener('mousemove', function(e){
+  if(!isResizing) return;
+  const rect = modal.getBoundingClientRect();
+  modal.style.width = Math.max(200, e.clientX - rect.left) + "px";
+  modal.style.height = Math.max(100, e.clientY - rect.top) + "px";
+});
+
+document.addEventListener('mouseup', function(){
+  isResizing = false;
+});
+
+// 關閉 modal
+function closeRoomModal(){
+  modal.style.display = "none";
+}
+
+function setFloor(floor){
+  currentFloor = floor;
+  renderBoard(filteredTilesForFloor(tilesData), playersData);
+}
+
+// 過濾出當前樓層的房間
+function filteredTilesForFloor(allTiles){
+  return allTiles.filter(t => t.floor === currentFloor);
+}
+
+</script>
+</body>
+</html>
