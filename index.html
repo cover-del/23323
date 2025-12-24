@@ -311,6 +311,7 @@
 
 <script>
 /* --- client-side logic --- */
+
 let myPlayerId = localStorage.getItem("myPlayerId") || null;
 let myName = localStorage.getItem("myName") || "";
 let currentRoomId = localStorage.getItem("currentRoomId") || null;
@@ -319,32 +320,26 @@ let currentFloor = "Ground"; // 預設 1F
 let tilesCache = [];
 let playersCache = [];
 
-
-// utility: handle call failures
-const GAS_URL = "https://script.google.com/macros/s/AKfycbzJSlEDqEwdFKg-ru3HeM7SRaveA6wpLvT3kzc3DyiXFdDhX03T4qGaez2msEh86lFbAQ/exec";
-
-
+// -----------------
+// gsRun 改寫
+// -----------------
 function gsRun(fn, args = [], cb){
-  fetch(GAS_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fn, args }) // ⭐ 使用參數
-  })
-  .then(res => res.json())
-  .then(data => {
-    if(data?.error){
-      alert("伺服器錯誤: " + data.error);
-      console.error(data.error);
-      return;
-    }
-    cb && cb(data);
-  })
-  .catch(err => {
-    console.error("Fetch error", err);
-    alert("無法連線到伺服器");
-  });
-}
+  // 使用 google.script.run 呼叫 server 端
+  if(!google || !google.script || !google.script.run){
+    console.error("google.script.run not available, make sure this HTML is served from Apps Script!");
+    alert("本頁面必須從 Apps Script 執行才能運作");
+    return;
+  }
 
+  let runner = google.script.run.withSuccessHandler(cb)
+                               .withFailureHandler(err => {
+                                  console.error("GAS error", err);
+                                  alert("伺服器錯誤: " + (err.message || err));
+                               });
+
+  // call server-side function
+  runner[fn](...args);
+}
 
 
 // login
@@ -354,7 +349,8 @@ function login(){
   myName = name;
   localStorage.setItem("myName", myName);
   gsRun("addPlayer", [name], (resp)=>{
-    myPlayerId = resp.playerId; localStorage.setItem("myPlayerId", myPlayerId);
+    myPlayerId = resp.playerId; 
+    localStorage.setItem("myPlayerId", myPlayerId);
     document.getElementById("playerLabel").textContent = name + " ("+myPlayerId+")";
     alert("登入成功: " + name);
   });
@@ -363,16 +359,15 @@ function login(){
 // create room
 function createRoom(){
   const rn = document.getElementById("roomName").value || "Room";
-  gsRun("createRoom", [rn], (roomId)=>{
-    currentRoomId = roomId; localStorage.setItem("currentRoomId", roomId);
+  gsRun("createRoom", [rn], roomId=>{
+    currentRoomId = roomId;
+    localStorage.setItem("currentRoomId", roomId);
     document.getElementById("roomLabel").textContent = roomId;
-    // auto add self
-    if(!myPlayerId) login(); // ensure player exists
+    if(!myPlayerId) login(); 
     setTimeout(()=>{ joinRoom(); }, 500);
     startSync();
   });
 }
-
 let TILE_POOL = [];
 
 function loadTilePool(callback){
@@ -390,17 +385,15 @@ function joinRoom(){
   const name = document.getElementById("pname").value.trim();
   if(!rid || !name) return alert("請輸入名字和房間ID");
 
-  gsRun("addPlayerToRoom", [name, rid], (player)=>{
+  gsRun("addPlayerToRoom", [name, rid], player=>{
     console.log("加入房間結果:", player);
     alert("已加入房間: " + rid + "，玩家ID: " + player.playerId);
-    // 存 localStorage
     localStorage.setItem("myPlayerId", player.playerId);
     localStorage.setItem("currentRoomId", rid);
     document.getElementById("roomLabel").textContent = rid;
     document.getElementById("playerLabel").textContent = name + " (" + player.playerId + ")";
   });
 }
-
 // sync loop
 function startSync(){
   if(syncTimer) clearInterval(syncTimer);
@@ -409,19 +402,21 @@ function startSync(){
 }
 function stopSync(){ if(syncTimer) clearInterval(syncTimer); syncTimer = null; }
 
-// load everything
 function loadAll(){
-  const currentRoomId = localStorage.getItem("currentRoomId");
-  const myPlayerId = localStorage.getItem("myPlayerId");
-  if(!currentRoomId || !myPlayerId) return;
+  const rid = localStorage.getItem("currentRoomId");
+  const pid = localStorage.getItem("myPlayerId");
+  if(!rid || !pid) return;
 
-  gsRun("getRoomData", [currentRoomId], data=>{
+  gsRun("getRoomData", [rid], data=>{
     console.log("房間資料:", data);
-    // 這裡你可以呼叫 renderBoard, renderPlayerList, renderChat 等
+    tilesCache = data.tiles || [];
+    playersCache = data.players || [];
+    renderBoard(tilesCache, playersCache);
+    renderPlayerList();
+    renderMyRole(playersCache);
+    renderHaunt(data.gs);
   });
 }
-
-
 
 
 // render board
@@ -512,6 +507,7 @@ function renderMyRole(players){
 }
 
 // movement
+/* ------------------ 移動 ------------------ */
 function move(dir){
   if(!currentRoomId || !myPlayerId) return alert("先登入並加入房間");
   const dx = dir==="left" ? -1 : dir==="right" ? 1 : 0;
@@ -521,7 +517,6 @@ function move(dir){
     else loadAll();
   });
 }
-
 // draw card
 function draw(type){
   if(!currentRoomId) return;
@@ -532,10 +527,10 @@ function draw(type){
   });
 }
 
+
 // assign roles prompt
 function assignRolesPrompt(){
   if(!currentRoomId) return alert("請先在房間裡");
-  // fetch players and auto assign random 1 traitor rest heroes
   gsRun("getRoomPlayers",[currentRoomId], players=>{
     if(!players || players.length===0) return alert("房內無玩家");
     const roles = [];
@@ -544,7 +539,6 @@ function assignRolesPrompt(){
     gsRun("assignRoles",[roles, currentRoomId], ret=>{ alert("已分發身分"); loadAll(); });
   });
 }
-
 // reset room (utility)
 function resetRoom(){
   if(!currentRoomId) return;
@@ -558,11 +552,9 @@ function resetRoom(){
 // ---------------- chat ----------------
 function loadPlayersListForChat(){
   if(!currentRoomId) return;
-
   gsRun("getRoomPlayers",[currentRoomId], players=>{
     const sel = document.getElementById("chatReceiver");
     sel.innerHTML = "";
-
     players.forEach(p=>{
       const opt = document.createElement("option");
       opt.value = p.playerId;
@@ -571,7 +563,6 @@ function loadPlayersListForChat(){
     });
   });
 }
-
 function loadChat(){
   if(!currentRoomId || !myPlayerId) return;
 
@@ -604,22 +595,21 @@ function loadChat(){
 
 
 function sendChat(){
-  const myPlayerId = localStorage.getItem("myPlayerId");
-  const myName = document.getElementById("pname").value.trim();
-  const currentRoomId = localStorage.getItem("currentRoomId");
+  const pid = localStorage.getItem("myPlayerId");
+  const name = document.getElementById("pname").value.trim();
+  const rid = localStorage.getItem("currentRoomId");
   const msg = document.getElementById("chatInput").value.trim();
   const type = document.getElementById("chatType").value;
   const recv = type==="private" ? document.getElementById("chatReceiver").value : "";
 
-  if(!msg || !myPlayerId || !currentRoomId) return;
+  if(!msg || !pid || !rid) return;
 
-  gsRun("sendMessageToRoom", [myPlayerId, myName, msg, currentRoomId, type, recv], res=>{
+  gsRun("sendMessageToRoom",[pid, name, msg, rid, type, recv], res=>{
     console.log("訊息回傳:", res);
     document.getElementById("chatInput").value = "";
     loadAll();
   });
 }
-
 // load cards
 function loadCards(){
   if(!currentRoomId) return;
