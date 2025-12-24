@@ -310,13 +310,14 @@
 
 
 <script>
-const API_URL = 'https://script.google.com/macros/s/AKfycbxmrd_xa9skox_Ot1v1qmq3e60PS89VrPhhAqhWPs2MmhvATEM-yLESd6kAjXCV7z8Daw/exec';
 /* --- client-side logic --- */
 let myPlayerId = localStorage.getItem("myPlayerId") || null;
 let myName = localStorage.getItem("myName") || "";
 let currentRoomId = localStorage.getItem("currentRoomId") || null;
 let syncTimer = null;
 let currentFloor = "Ground"; // 預設 1F
+let tilesCache = [];
+let playersCache = [];
 
 
 // utility: handle call failures
@@ -398,15 +399,19 @@ function stopSync(){ if(syncTimer) clearInterval(syncTimer); syncTimer = null; }
 function loadAll(){
   if(!currentRoomId || !myPlayerId) return;
   gsRun("getRoomData",[currentRoomId], data=>{
-    renderBoard(data.tiles, data.players);
+    tilesCache = data.tiles || [];
+    playersCache = data.players || [];
+
+    renderBoard(tilesCache, playersCache);
     renderHaunt(data.haunt);
-    renderMyRole(data.players);
+    renderMyRole(playersCache);
     loadChat();
     loadPlayersListForChat();
-    renderPlayerList(data.players);  // ⭐ 建議傳進 players
+    renderPlayerList();
     loadCards();
   });
 }
+
 
 
 
@@ -415,7 +420,6 @@ function renderBoard(tiles, players){
   const board = document.getElementById("board");
   board.innerHTML = "";
 
-  // 過濾出當前樓層的房間
   const floorTiles = tiles.filter(t => t.floor === currentFloor);
 
   for(let y=0;y<11;y++){
@@ -424,39 +428,38 @@ function renderBoard(tiles, players){
       const cell = document.createElement("div");
       cell.className = "cell";
 
-      // 找房間
-      const tile = floorTiles.find(t=>Number(t.x)===gx && Number(t.y)===gy);
+      const tile = floorTiles.find(t => Number(t.x)===gx && Number(t.y)===gy);
       if(tile){
-        cell.classList.add(tile.floor==="Ground" ? "ground" : tile.floor==="Upper" ? "upper" : "basement");
+        cell.classList.add(
+          tile.floor==="Ground" ? "ground" :
+          tile.floor==="Upper" ? "upper" : "basement"
+        );
 
         const title = document.createElement("div");
         title.textContent = tile.tileName;
         title.style.fontSize="12px";
-        title.style.cursor = "pointer";
-        title.onclick = () => {
-          document.getElementById("k01-title").innerText = tile.tileName;
-          document.getElementById("k01-effect").innerText = tile.effect || "無功能說明";
-          document.getElementById("k01-lore").innerText = tile.lore || "無背景介紹";
-          document.getElementById("k01").style.display = "block";
+        title.style.cursor="pointer";
+
+        title.onclick = ()=>{
+          showRoomModal(tile);
         };
+
         cell.appendChild(title);
 
-        if(tile.tileName === "系館大廳" && tile.floor === "Ground" && gx===0 && gy===0){
-          cell.style.border = "2px solid #0f0";
+        if(tile.tileName==="系館大廳" && tile.floor==="Ground" && gx===0 && gy===0){
+          cell.style.border="2px solid #0f0";
         }
-
-      } else {
-        const empty = document.createElement("div"); 
-        empty.textContent = ""; 
-        cell.appendChild(empty);
       }
 
-      // 玩家 token 也只顯示當前樓層的玩家
-      const p = players.find(pl => Number(pl.x) === gx && Number(pl.y) === gy && pl.floor === currentFloor);
+      const p = players.find(pl =>
+        Number(pl.x)===gx &&
+        Number(pl.y)===gy &&
+        pl.floor===currentFloor
+      );
       if(p){
-        const token = document.createElement("div"); 
-        token.className = "playerToken";
-        token.textContent = p.name;
+        const token=document.createElement("div");
+        token.className="playerToken";
+        token.textContent=p.name;
         cell.appendChild(token);
       }
 
@@ -725,7 +728,7 @@ function closeRoomModal(){
 
 function setFloor(floor){
   currentFloor = floor;
-  renderBoard(filteredTilesForFloor(tilesData), playersData);
+  renderBoard(tilesCache, playersCache);
 }
 
 // 過濾出當前樓層的房間
