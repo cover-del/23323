@@ -321,11 +321,27 @@ let playersCache = [];
 
 
 // utility: handle call failures
-function gsRun(fn, args, cb){
-  return google.script.run.withSuccessHandler(cb).withFailureHandler(err=>{
-    console.error("GAS error", err);
-    alert("伺服器錯誤: " + err.message);
-  })[fn].apply(null, args);
+const GAS_URL = "https://script.google.com/macros/s/AKfycbybSxgUC0p26Ps858A0Ii4U5hrUx1sjYcS2MBXtqxOnjS7S7Y3GB32k1Ls-1y4McPk14Q/exec";
+
+function gsRun(fn, args = [], cb){
+  fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fn, args })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if(data?.error){
+      alert("伺服器錯誤: " + data.error);
+      console.error(data.error);
+      return;
+    }
+    cb && cb(data);
+  })
+  .catch(err => {
+    console.error("Fetch error", err);
+    alert("無法連線到伺服器");
+  });
 }
 
 // login
